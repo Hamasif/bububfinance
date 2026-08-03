@@ -1,28 +1,61 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Plus, Trash2, Calendar, TrendingDown } from 'lucide-react';
 import Navbar from './components/Navbar';
 import SummaryCards from './components/SummaryCards';
 import MonthModal from './components/MonthModal';
 import TransactionModal from './components/TransactionModal';
+import AuthModal from './components/AuthModal';
 import { EXPENSE_CATEGORIES, INCOME_CATEGORIES } from './constants/categories';
-import { useLocalStorage } from './hooks/useLocalStorage';
+import { useAuth } from './context/AuthContext';
+import { db } from './firebase';
+import { doc, setDoc, onSnapshot } from 'firebase/firestore';
 
 export default function App() {
-  const [monthlyBudgets, setMonthlyBudgets] = useLocalStorage('bubub_budgets', [
-    {
-      id: '1',
-      month: 'Agustus 2026',
-      transactions: [
-        { id: 't1', type: 'income', title: 'Gaji Bulanan 💸', amount: 4500000, date: '2026-08-01', category: 'gaji' },
-        { id: 't2', type: 'expense', title: 'Beli Matcha Latte 🍵', amount: 35000, date: '2026-08-01', category: 'makanan' },
-        { id: 't3', type: 'expense', title: 'Skincare Cushion 💖', amount: 185000, date: '2026-08-02', category: 'belanja' }
-      ]
-    }
-  ]);
-
+  const { currentUser } = useAuth();
+  const [monthlyBudgets, setMonthlyBudgets] = useState([]);
   const [selectedBudgetId, setSelectedBudgetId] = useState(null);
   const [showAddMonthModal, setShowAddMonthModal] = useState(false);
   const [showAddTxModal, setShowAddTxModal] = useState(false);
+
+  // Sync Data dari Firebase Firestore saat User Login
+  useEffect(() => {
+    if (!currentUser) {
+      setMonthlyBudgets([]);
+      return;
+    }
+
+    // Subscribe ke dokumen Firestore pengguna
+    const userDocRef = doc(db, 'user_budgets', currentUser.uid);
+    const unsubscribe = onSnapshot(userDocRef, (docSnap) => {
+      if (docSnap.exists()) {
+        setMonthlyBudgets(docSnap.data().budgets || []);
+      } else {
+        // Data default jika baru pertama kali login
+        const initialData = [
+          {
+            id: '1',
+            month: 'Agustus 2026',
+            transactions: [
+              { id: 't1', type: 'income', title: 'Gaji Bulanan 💸', amount: 4500000, date: '2026-08-01', category: 'gaji' },
+              { id: 't2', type: 'expense', title: 'Beli Matcha Latte 🍵', amount: 35000, date: '2026-08-01', category: 'makanan' }
+            ]
+          }
+        ];
+        setDoc(userDocRef, { budgets: initialData });
+        setMonthlyBudgets(initialData);
+      }
+    });
+
+    return () => unsubscribe();
+  }, [currentUser]);
+
+  // Fungsi Pembantu Simpan Perubahan ke Firestore
+  const saveToCloud = async (newBudgets) => {
+    if (!currentUser) return;
+    setMonthlyBudgets(newBudgets);
+    const userDocRef = doc(db, 'user_budgets', currentUser.uid);
+    await setDoc(userDocRef, { budgets: newBudgets });
+  };
 
   const selectedBudget = monthlyBudgets.find(b => b.id === selectedBudgetId);
 
@@ -42,19 +75,20 @@ export default function App() {
       month: monthName,
       transactions: []
     };
-    setMonthlyBudgets([newEntry, ...monthlyBudgets]);
+    saveToCloud([newEntry, ...monthlyBudgets]);
   };
 
   const handleDeleteMonth = (id, e) => {
     e.stopPropagation();
     if (confirm('Yakin mau hapus catatan bulan ini, Bub? 🥺')) {
-      setMonthlyBudgets(monthlyBudgets.filter(b => b.id !== id));
+      const updated = monthlyBudgets.filter(b => b.id !== id);
+      saveToCloud(updated);
       if (selectedBudgetId === id) setSelectedBudgetId(null);
     }
   };
 
   const handleAddTransaction = (newTx) => {
-    setMonthlyBudgets(prev => prev.map(budget => {
+    const updated = monthlyBudgets.map(budget => {
       if (budget.id === selectedBudgetId) {
         return {
           ...budget,
@@ -62,11 +96,12 @@ export default function App() {
         };
       }
       return budget;
-    }));
+    });
+    saveToCloud(updated);
   };
 
   const handleDeleteTransaction = (txId) => {
-    setMonthlyBudgets(prev => prev.map(budget => {
+    const updated = monthlyBudgets.map(budget => {
       if (budget.id === selectedBudgetId) {
         return {
           ...budget,
@@ -74,22 +109,27 @@ export default function App() {
         };
       }
       return budget;
-    }));
+    });
+    saveToCloud(updated);
   };
 
   return (
     <div className="min-h-screen bg-gradient-to-b from-pink-50 via-rose-50/30 to-pink-100/40 text-slate-700 pb-12">
       <Navbar selectedBudgetId={selectedBudgetId} onBack={() => setSelectedBudgetId(null)} />
 
+      {/* Tampilkan Modal Login jika user belum login */}
+      <AuthModal isOpen={!currentUser} />
+
       <main className="max-w-3xl mx-auto px-4 pt-6">
-        {!selectedBudget ? (
-          /* ================= VIEW 1: LIST PERIODE BULAN ================= */
+        {currentUser && !selectedBudget && (
           <div>
             <div className="p-6 rounded-3xl bg-white border-2 border-pink-100 shadow-xl shadow-pink-100/50 mb-8 relative overflow-hidden">
               <div className="absolute -right-4 -bottom-4 text-7xl opacity-20 pointer-events-none">🎀</div>
-              <h2 className="text-xl font-bold text-slate-800 mb-1">Halo, Bubub! 👋</h2>
+              <h2 className="text-xl font-bold text-slate-800 mb-1">
+                Halo, {currentUser.displayName || currentUser.email.split('@')[0]}! 👋
+              </h2>
               <p className="text-sm text-slate-500 mb-4">
-                Yuk catat pemasukan dan pengeluaranmu agar tabungan tetap seimbang!
+                Catatan keuanganmu tersimpan aman✨
               </p>
               
               <button
@@ -158,8 +198,9 @@ export default function App() {
               </div>
             )}
           </div>
-        ) : (
-          /* ================= VIEW 2: DETAIL PERIODE TERPILIH ================= */
+        )}
+
+        {currentUser && selectedBudget && (
           <div>
             <div className="bg-white p-6 rounded-3xl border-2 border-pink-100 shadow-xl shadow-pink-100/50 mb-6">
               <div className="flex justify-between items-center mb-4">
@@ -175,14 +216,12 @@ export default function App() {
                 </button>
               </div>
 
-              {/* Ringkasan Cards Komponen */}
               <SummaryCards 
                 {...calculateTotals(selectedBudget.transactions)} 
                 formatRupiah={formatRupiah} 
               />
             </div>
 
-            {/* List Transaksi */}
             <div className="flex items-center justify-between mb-4">
               <h3 className="font-bold text-slate-700 text-base flex items-center gap-2">
                 <TrendingDown className="w-4 h-4 text-pink-400" /> Riwayat Transaksi
@@ -244,7 +283,6 @@ export default function App() {
         )}
       </main>
 
-      {/* Modals */}
       <MonthModal 
         isOpen={showAddMonthModal} 
         onClose={() => setShowAddMonthModal(false)} 
