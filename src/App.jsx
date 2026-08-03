@@ -16,45 +16,59 @@ export default function App() {
   const [selectedBudgetId, setSelectedBudgetId] = useState(null);
   const [showAddMonthModal, setShowAddMonthModal] = useState(false);
   const [showAddTxModal, setShowAddTxModal] = useState(false);
+  const [dataLoading, setDataLoading] = useState(true);
 
-  // Sync Data dari Firebase Firestore saat User Login
+  // ==========================================
+  // 1. READ REALTIME DATA DARI FIREBASE
+  // ==========================================
   useEffect(() => {
     if (!currentUser) {
       setMonthlyBudgets([]);
+      setDataLoading(false);
       return;
     }
 
-    // Subscribe ke dokumen Firestore pengguna
+    setDataLoading(true);
     const userDocRef = doc(db, 'user_budgets', currentUser.uid);
-    const unsubscribe = onSnapshot(userDocRef, (docSnap) => {
-      if (docSnap.exists()) {
-        setMonthlyBudgets(docSnap.data().budgets || []);
-      } else {
-        // Data default jika baru pertama kali login
-        const initialData = [
-          {
-            id: '1',
-            month: 'Agustus 2026',
-            transactions: [
-              { id: 't1', type: 'income', title: 'Gaji Bulanan 💸', amount: 4500000, date: '2026-08-01', category: 'gaji' },
-              { id: 't2', type: 'expense', title: 'Beli Matcha Latte 🍵', amount: 35000, date: '2026-08-01', category: 'makanan' }
-            ]
-          }
-        ];
-        setDoc(userDocRef, { budgets: initialData });
-        setMonthlyBudgets(initialData);
+
+    // Subscribe ke dokumen Firestore
+    const unsubscribe = onSnapshot(
+      userDocRef,
+      (docSnap) => {
+        if (docSnap.exists()) {
+          setMonthlyBudgets(docSnap.data().budgets || []);
+        } else {
+          // Jika dokumen belum ada sama sekali di Firebase, buat array kosong
+          setDoc(userDocRef, { budgets: [] });
+          setMonthlyBudgets([]);
+        }
+        setDataLoading(false);
+      },
+      (error) => {
+        console.error("Error membaca Firestore:", error);
+        setDataLoading(false);
       }
-    });
+    );
 
     return () => unsubscribe();
   }, [currentUser]);
 
-  // Fungsi Pembantu Simpan Perubahan ke Firestore
-  const saveToCloud = async (newBudgets) => {
+  // ==========================================
+  // 2. HELPER SIMPAN PERUBAHAN KE FIREBASE
+  // ==========================================
+  const saveToFirebase = async (updatedBudgets) => {
     if (!currentUser) return;
-    setMonthlyBudgets(newBudgets);
-    const userDocRef = doc(db, 'user_budgets', currentUser.uid);
-    await setDoc(userDocRef, { budgets: newBudgets });
+    try {
+      // Update state lokal
+      setMonthlyBudgets(updatedBudgets);
+
+      // Simpan langsung ke Cloud Firestore
+      const userDocRef = doc(db, 'user_budgets', currentUser.uid);
+      await setDoc(userDocRef, { budgets: updatedBudgets }, { merge: true });
+    } catch (err) {
+      console.error("Gagal menyimpan ke Firebase:", err);
+      alert("Terjadi kesalahan saat menyimpan data ke Firebase!");
+    }
   };
 
   const selectedBudget = monthlyBudgets.find(b => b.id === selectedBudgetId);
@@ -69,25 +83,29 @@ export default function App() {
     return { totalIncome, totalExpense };
   };
 
-  const handleAddMonth = (monthName) => {
+  // ==========================================
+  // 3. HANDLER AKSI (TAMBAH / HAPUS)
+  // ==========================================
+  const handleAddMonth = async (monthName) => {
     const newEntry = {
       id: Date.now().toString(),
       month: monthName,
       transactions: []
     };
-    saveToCloud([newEntry, ...monthlyBudgets]);
+    const updated = [newEntry, ...monthlyBudgets];
+    await saveToFirebase(updated);
   };
 
-  const handleDeleteMonth = (id, e) => {
+  const handleDeleteMonth = async (id, e) => {
     e.stopPropagation();
     if (confirm('Yakin mau hapus catatan bulan ini, Bub? 🥺')) {
       const updated = monthlyBudgets.filter(b => b.id !== id);
-      saveToCloud(updated);
+      await saveToFirebase(updated);
       if (selectedBudgetId === id) setSelectedBudgetId(null);
     }
   };
 
-  const handleAddTransaction = (newTx) => {
+  const handleAddTransaction = async (newTx) => {
     const updated = monthlyBudgets.map(budget => {
       if (budget.id === selectedBudgetId) {
         return {
@@ -97,10 +115,10 @@ export default function App() {
       }
       return budget;
     });
-    saveToCloud(updated);
+    await saveToFirebase(updated);
   };
 
-  const handleDeleteTransaction = (txId) => {
+  const handleDeleteTransaction = async (txId) => {
     const updated = monthlyBudgets.map(budget => {
       if (budget.id === selectedBudgetId) {
         return {
@@ -110,18 +128,25 @@ export default function App() {
       }
       return budget;
     });
-    saveToCloud(updated);
+    await saveToFirebase(updated);
   };
 
   return (
     <div className="min-h-screen bg-gradient-to-b from-pink-50 via-rose-50/30 to-pink-100/40 text-slate-700 pb-12">
       <Navbar selectedBudgetId={selectedBudgetId} onBack={() => setSelectedBudgetId(null)} />
 
-      {/* Tampilkan Modal Login jika user belum login */}
+      {/* Modal Auth apabila belum login */}
       <AuthModal isOpen={!currentUser} />
 
       <main className="max-w-3xl mx-auto px-4 pt-6">
-        {currentUser && !selectedBudget && (
+        {currentUser && dataLoading && (
+          <div className="text-center py-12">
+            <p className="text-3xl animate-bounce mb-2">🌸</p>
+            <p className="text-xs text-pink-500 font-semibold">Mengambil data dari Cloud Firebase...</p>
+          </div>
+        )}
+
+        {currentUser && !dataLoading && !selectedBudget && (
           <div>
             <div className="p-6 rounded-3xl bg-white border-2 border-pink-100 shadow-xl shadow-pink-100/50 mb-8 relative overflow-hidden">
               <div className="absolute -right-4 -bottom-4 text-7xl opacity-20 pointer-events-none">🎀</div>
@@ -129,7 +154,7 @@ export default function App() {
                 Halo, {currentUser.displayName || currentUser.email.split('@')[0]}! 👋
               </h2>
               <p className="text-sm text-slate-500 mb-4">
-                Catatan keuanganmu tersimpan aman✨
+                Semua data keuanganmu tersimpan otomatis di Cloud Firebase ✨
               </p>
               
               <button
@@ -150,6 +175,7 @@ export default function App() {
               <div className="text-center py-12 bg-white/60 rounded-3xl border border-dashed border-pink-200 p-6">
                 <p className="text-4xl mb-2">🍧</p>
                 <p className="text-slate-500 text-sm">Belum ada catatan bulan nih.</p>
+                <p className="text-xs text-pink-400 mt-1">Klik tombol di atas untuk membuat bulan pertama!</p>
               </div>
             ) : (
               <div className="grid gap-4 sm:grid-cols-2">
@@ -200,7 +226,7 @@ export default function App() {
           </div>
         )}
 
-        {currentUser && selectedBudget && (
+        {currentUser && !dataLoading && selectedBudget && (
           <div>
             <div className="bg-white p-6 rounded-3xl border-2 border-pink-100 shadow-xl shadow-pink-100/50 mb-6">
               <div className="flex justify-between items-center mb-4">

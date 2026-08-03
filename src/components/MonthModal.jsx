@@ -2,15 +2,24 @@ import React, { useState } from 'react';
 
 export default function MonthModal({ isOpen, onClose, onSave }) {
   const [monthName, setMonthName] = useState('');
+  const [loading, setLoading] = useState(false);
 
   if (!isOpen) return null;
 
-  const handleSubmit = (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault();
-    if (!monthName) return;
-    onSave(monthName);
-    setMonthName('');
-    onClose();
+    if (!monthName.trim() || loading) return;
+
+    try {
+      setLoading(true);
+      await onSave(monthName.trim());
+      setMonthName('');
+      onClose();
+    } catch (err) {
+      console.error("Gagal menyimpan periode bulan:", err);
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
@@ -36,15 +45,17 @@ export default function MonthModal({ isOpen, onClose, onSave }) {
             <button
               type="button"
               onClick={onClose}
-              className="flex-1 py-2.5 rounded-xl border border-slate-200 text-xs font-semibold text-slate-500 hover:bg-slate-50"
+              disabled={loading}
+              className="flex-1 py-2.5 rounded-xl border border-slate-200 text-xs font-semibold text-slate-500 hover:bg-slate-50 disabled:opacity-50"
             >
               Batal
             </button>
             <button
               type="submit"
-              className="flex-1 py-2.5 rounded-xl bg-gradient-to-r from-pink-400 to-rose-400 text-white text-xs font-bold shadow-md shadow-pink-200 hover:opacity-90"
+              disabled={loading}
+              className="flex-1 py-2.5 rounded-xl bg-gradient-to-r from-pink-400 to-rose-400 text-white text-xs font-bold shadow-md shadow-pink-200 hover:opacity-90 disabled:opacity-50"
             >
-              Simpan Periode
+              {loading ? 'Menyimpan...' : 'Simpan Periode'}
             </button>
           </div>
         </form>

@@ -2,33 +2,42 @@ import React, { useState } from 'react';
 import { EXPENSE_CATEGORIES, INCOME_CATEGORIES } from '../constants/categories';
 
 export default function TransactionModal({ isOpen, onClose, onSave }) {
-  const [type, setType] = useState('expense'); // 'expense' | 'income'
+  const [type, setType] = useState('expense');
   const [title, setTitle] = useState('');
   const [amount, setAmount] = useState('');
   const [date, setDate] = useState(new Date().toISOString().split('T')[0]);
   const [category, setCategory] = useState('makanan');
+  const [loading, setLoading] = useState(false); // ✨ Tambah state loading
 
   if (!isOpen) return null;
 
   const categories = type === 'expense' ? EXPENSE_CATEGORIES : INCOME_CATEGORIES;
 
-  const handleSubmit = (e) => {
+  // ✨ Diubah menjadi async untuk menangani save Firebase
+  const handleSubmit = async (e) => {
     e.preventDefault();
-    if (!title || !amount) return;
+    if (!title.trim() || !amount || loading) return;
 
-    onSave({
-      id: Date.now().toString(),
-      type,
-      title,
-      amount: Number(amount),
-      date,
-      category
-    });
+    try {
+      setLoading(true);
+      await onSave({
+        id: Date.now().toString(),
+        type,
+        title: title.trim(),
+        amount: Number(amount),
+        date,
+        category
+      });
 
-    // Reset Form
-    setTitle('');
-    setAmount('');
-    onClose();
+      // Reset Form & Close Modal setelah berhasil simpan
+      setTitle('');
+      setAmount('');
+      onClose();
+    } catch (err) {
+      console.error("Gagal simpan transaksi:", err);
+    } finally {
+      setLoading(false);
+    }
   };
 
   const handleTypeChange = (newType) => {
@@ -37,7 +46,7 @@ export default function TransactionModal({ isOpen, onClose, onSave }) {
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/30 backdrop-blur-sm">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/30 backdrop-blur-sm animate-fade-in">
       <div className="bg-white rounded-3xl p-6 w-full max-w-md border-2 border-pink-100 shadow-2xl">
         <h3 className="text-lg font-bold text-slate-800 mb-1">Catat Keuangan Baru ✨</h3>
         <p className="text-xs text-slate-400 mb-4">Pilih tipe transaksi lalu lengkapi detailnya.</p>
@@ -119,19 +128,21 @@ export default function TransactionModal({ isOpen, onClose, onSave }) {
             <button
               type="button"
               onClick={onClose}
-              className="flex-1 py-2.5 rounded-xl border border-slate-200 text-xs font-semibold text-slate-500 hover:bg-slate-50"
+              disabled={loading}
+              className="flex-1 py-2.5 rounded-xl border border-slate-200 text-xs font-semibold text-slate-500 hover:bg-slate-50 disabled:opacity-50"
             >
               Batal
             </button>
             <button
               type="submit"
-              className={`flex-1 py-2.5 rounded-xl text-white text-xs font-bold shadow-md transition-all ${
+              disabled={loading}
+              className={`flex-1 py-2.5 rounded-xl text-white text-xs font-bold shadow-md transition-all disabled:opacity-50 ${
                 type === 'expense' 
                   ? 'bg-gradient-to-r from-pink-400 to-rose-400 shadow-pink-200' 
                   : 'bg-gradient-to-r from-emerald-400 to-teal-400 shadow-emerald-200'
               }`}
             >
-              Simpan Transaksi
+              {loading ? 'Menyimpan...' : 'Simpan Transaksi'}
             </button>
           </div>
         </form>
